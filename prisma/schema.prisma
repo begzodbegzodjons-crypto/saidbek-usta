@@ -1,0 +1,94 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Ishchilar
+model Worker {
+  id        String       @id @default(cuid())
+  fullName  String
+  phone     String?
+  position  String?
+  dailyRate Float        @default(0)
+  active    Boolean      @default(true)
+  clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  attendances Attendance[]
+  payments    Payment[]
+}
+
+// Obyektlar (ish joylari)
+model Site {
+  id        String       @id @default(cuid())
+  name      String
+  address   String?
+  client    String?
+  active    Boolean      @default(true)
+  clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  attendances Attendance[]
+  transactions SiteTransaction[]
+}
+
+// Davomat — ishchi kuniga faqat bitta obyektda
+model Attendance {
+  id        String   @id @default(cuid())
+  workerId  String
+  siteId    String
+  date      String
+  status    String   @default("PRESENT") // PRESENT | ABSENT
+  dayRate   Float?
+  note      String?
+  createdAt DateTime @default(now())
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([workerId, date])
+  @@index([date])
+  @@index([siteId])
+}
+
+// To'lovlar
+model Payment {
+  id        String   @id @default(cuid())
+  workerId  String
+  amount    Float
+  date      String
+  note      String?
+  clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
+  createdAt DateTime @default(now())
+  worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([date])
+}
+
+// Obyekt moliyasi: Avans (mijozdan olingan pul) va Xarajatlar (material, transport va h.k.)
+model SiteTransaction {
+  id        String   @id @default(cuid())
+  siteId    String
+  type      String   @default("EXPENSE") // ADVANCE (avans/kirim) | EXPENSE (xarajat)
+  amount    Float
+  date      String
+  category  String?
+  note      String?
+  clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
+  createdAt DateTime @default(now())
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, date])
+  @@index([date])
+}
+
+// Sozlamalar (firma nomi va boshqalar)
+model Setting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

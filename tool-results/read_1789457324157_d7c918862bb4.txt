@@ -1,0 +1,678 @@
+     1→     1→'use client'
+     2→     2→
+     3→     3→import { useMemo, useState } from 'react'
+     4→     4→import { FileBarChart, FileSpreadsheet, FileText, Filter, UserSearch, X } from 'lucide-react'
+     5→     5→import { Card, CardContent } from '@/components/ui/card'
+     6→     6→import { Button } from '@/components/ui/button'
+     7→     7→import { Input } from '@/components/ui/input'
+     8→     8→import { Label } from '@/components/ui/label'
+     9→     9→import { Badge } from '@/components/ui/badge'
+    10→    10→import { Skeleton } from '@/components/ui/skeleton'
+    11→    11→import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+    12→    12→import {
+    13→    13→  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+    14→    14→} from '@/components/ui/table'
+    15→    15→import {
+    16→    16→  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+    17→    17→} from '@/components/ui/select'
+    18→    18→import { useToast } from '@/hooks/use-toast'
+    19→    19→import { useApi, useCompany } from '@/hooks/use-api'
+    20→    20→import { formatMoney, formatDateUz, monthStartStr, todayStr } from '@/lib/format'
+    21→    21→import { exportToExcel, exportToPDF } from '@/lib/export'
+    22→    22→import type { ReportData, Worker, Site, Payment } from '@/lib/types'
+    23→    23→
+    24→    24→export default function Reports() {
+    25→    25→  const companyName = useCompany()
+    26→    26→  const [from, setFrom] = useState(monthStartStr())
+    27→    27→  const [to, setTo] = useState(todayStr())
+    28→    28→  const [workerId, setWorkerId] = useState('all')
+    29→    29→  const [siteId, setSiteId] = useState('all')
+    30→    30→  const [activeTab, setActiveTab] = useState('workers')
+    31→    31→  const { toast } = useToast()
+    32→    32→
+    33→    33→  const { data: workers } = useApi<Worker[]>('/api/workers')
+    34→    34→  const { data: sites } = useApi<Site[]>('/api/sites')
+    35→    35→
+    36→    36→  // Tanlangan ishchining to'lovlari (davr bo'yicha)
+    37→    37→  const paymentsUrl = useMemo(
+    38→    38→    () => (workerId !== 'all' ? `/api/payments?workerId=${workerId}&from=${from}&to=${to}` : null),
+    39→    39→    [workerId, from, to]
+    40→    40→  )
+    41→    41→  const { data: workerPayments } = useApi<Payment[]>(paymentsUrl)
+    42→    42→
+    43→    43→  const url = useMemo(() => {
+    44→    44→    const params = new URLSearchParams({ from, to })
+    45→    45→    if (workerId !== 'all') params.set('workerId', workerId)
+    46→    46→    if (siteId !== 'all') params.set('siteId', siteId)
+    47→    47→    return `/api/reports?${params.toString()}`
+    48→    48→  }, [from, to, workerId, siteId])
+    49→    49→
+    50→    50→  const { data, loading } = useApi<ReportData>(url)
+    51→    51→
+    52→    52→  const selectedWorker = workers?.find((w) => w.id === workerId)
+    53→    53→
+    54→    54→  // Tanlangan ishchi: qaysi obyektlarda necha kun ishlagan (details'dan hisoblanadi)
+    55→    55→  const workerSiteRows = useMemo(() => {
+    56→    56→    if (!data || workerId === 'all') return []
+    57→    57→    const map: Record<string, { siteName: string; days: number; absent: number; amount: number }> = {}
+    58→    58→    for (const d of data.details) {
+    59→    59→      if (!map[d.siteName]) map[d.siteName] = { siteName: d.siteName, days: 0, absent: 0, amount: 0 }
+    60→    60→      if (d.status === 'PRESENT') {
+    61→    61→        map[d.siteName].days += 1
+    62→    62→        map[d.siteName].amount += d.amount
+    63→    63→      } else {
+    64→    64→        map[d.siteName].absent += 1
+    65→    65→      }
+    66→    66→    }
+    67→    67→    return Object.values(map).sort((a, b) => b.amount - a.amount)
+    68→    68→  }, [data, workerId])
+    69→    69→
+    70→    70→  // Barcha ishchilar × obyektlar kesimi (eksport varag'i uchun)
+    71→    71→  const workerSiteMatrix = useMemo(() => {
+    72→    72→    if (!data) return []
+    73→    73→    const map: Record<string, { worker: string; site: string; days: number; amount: number }> = {}
+    74→    74→    for (const d of data.details) {
+    75→    75→      if (d.status !== 'PRESENT') continue
+    76→    76→      const key = `${d.workerName}||${d.siteName}`
+    77→    77→      if (!map[key]) map[key] = { worker: d.workerName, site: d.siteName, days: 0, amount: 0 }
+    78→    78→      map[key].days += 1
+    79→    79→      map[key].amount += d.amount
+    80→    80→    }
+    81→    81→    return Object.values(map).sort((a, b) => a.worker.localeCompare(b.worker) || b.amount - a.amount)
+    82→    82→  }, [data])
+    83→    83→
+    84→    84→  const periodLabel = `${formatDateUz(from)} — ${formatDateUz(to)}`
+    85→    85→  const hasData = data && (data.byWorker.length > 0 || data.bySite.length > 0)
+    86→    86→
+    87→    87→  const workerName = workers?.find((w) => w.id === workerId)?.fullName
+    88→    88→  const siteName = sites?.find((s) => s.id === siteId)?.name
+    89→    89→  const subtitleParts = [periodLabel]
+    90→    90→  if (workerName) subtitleParts.push(`Ishchi: ${workerName}`)
+    91→    91→  if (siteName) subtitleParts.push(`Obyekt: ${siteName}`)
+    92→    92→
+    93→    93→  function buildSheets() {
+    94→    94→    if (!data) return []
+    95→    95→    return [
+    96→    96→      {
+    97→    97→        name: "Ishchilar bo'yicha",
+    98→    98→        head: ['Ishchi', 'Mutaxassislik', 'Ishlagan kun', 'Kelmagan', "Ish haqi (so'm)", "To'langan (so'm)", "Qoldiq (so'm)"],
+    99→    99→        body: data.byWorker.map((r) => [
+   100→   100→          r.workerName,
+   101→   101→          r.position ?? '',
+   102→   102→          r.days,
+   103→   103→          r.absent,
+   104→   104→          r.earned,
+   105→   105→          r.paid,
+   106→   106→          r.balance,
+   107→   107→        ]),
+   108→   108→      },
+   109→   109→      {
+   110→   110→        name: "Obyektlar bo'yicha",
+   111→   111→        head: ['Obyekt', 'Kun-davomat', 'Kelmagan', "Xarajat (so'm)"],
+   112→   112→        body: data.bySite.map((r) => [r.siteName, r.workerDays, r.absent, r.cost]),
+   113→   113→      },
+   114→   114→      {
+   115→   115→        name: "Kunlar bo'yicha",
+   116→   116→        head: ['Sana', 'Keldi', 'Kelmadi', "Summa (so'm)"],
+   117→   117→        body: data.byDate.map((r) => [formatDateUz(r.date), r.present, r.absent, r.cost]),
+   118→   118→      },
+   119→   119→      {
+   120→   120→        name: 'Moliya (avans-xarajat)',
+   121→   121→        head: ['Obyekt', "Avans (so'm)", "Xarajat (so'm)", "Qoldiq (so'm)"],
+   122→   122→        body: (data.bySiteFinance ?? []).map((r) => [r.siteName, r.advance, r.expense, r.net]),
+   123→   123→      },
+   124→   124→      {
+   125→   125→        name: 'Ishchi-obyekt kesimi',
+   126→   126→        head: ['Ishchi', 'Obyekt', 'Ishlagan kun', "Summa (so'm)"],
+   127→   127→        body: workerSiteMatrix.map((r) => [r.worker, r.site, r.days, r.amount]),
+   128→   128→      },
+   129→   129→    ]
+   130→   130→  }
+   131→   131→
+   132→   132→  function handleExportExcel() {
+   133→   133→    if (!data || !hasData) return
+   134→   134→    exportToExcel(buildSheets(), `hisobot_${from}_${to}`)
+   135→   135→    toast({ title: 'Excel yuklandi', description: '5 varaq: ishchilar, obyektlar, kunlar, moliya, ishchi-obyekt kesimi' })
+   136→   136→  }
+   137→   137→
+   138→   138→  function handleExportPDF() {
+   139→   139→    if (!data || !hasData) return
+   140→   140→    const t = data.totals
+   141→   141→    exportToPDF({
+   142→   142→      title: 'Hisobot — ish haqi hisob-kitobi',
+   143→   143→      subtitle: subtitleParts.join(' · '),
+   144→   144→      company: companyName,
+   145→   145→      landscape: true,
+   146→   146→      sheets: [
+   147→   147→        {
+   148→   148→          title: `Jami: ${t.days} kun ishlangan, ish haqi ${formatMoney(t.earned)} so'm, to'langan ${formatMoney(t.paid)} so'm, qoldiq ${formatMoney(t.balance)} so'm`,
+   149→   149→          head: ['Ishchi', 'Kun', "Ish haqi", "To'langan", "Qoldiq"],
+   150→   150→          body: data.byWorker.map((r) => [
+   151→   151→            r.workerName + (r.position ? ` (${r.position})` : ''),
+   152→   152→            r.days,
+   153→   153→            formatMoney(r.earned),
+   154→   154→            formatMoney(r.paid),
+   155→   155→            formatMoney(r.balance),
+   156→   156→          ]),
+   157→   157→        },
+   158→   158→        {
+   159→   159→          title: "Ishchi bo'yicha obyektlar — qaysi obyektda necha kun ishlagan",
+   160→   160→          head: ['Ishchi', 'Obyekt', 'Kun', 'Summa'],
+   161→   161→          body: workerSiteMatrix.map((r) => [r.worker, r.site, r.days, formatMoney(r.amount)]),
+   162→   162→        },
+   163→   163→        {
+   164→   164→          title: "Obyektlar bo'yicha",
+   165→   165→          head: ['Obyekt', 'Kun-davomat', "Xarajat"],
+   166→   166→          body: data.bySite.map((r) => [r.siteName, r.workerDays, formatMoney(r.cost)]),
+   167→   167→        },
+   168→   168→        {
+   169→   169→          title: "Kunlar bo'yicha",
+   170→   170→          head: ['Sana', 'Keldi', 'Kelmadi', "Summa"],
+   171→   171→          body: data.byDate.map((r) => [formatDateUz(r.date), r.present, r.absent, formatMoney(r.cost)]),
+   172→   172→        },
+   173→   173→        {
+   174→   174→          title: "Moliya — avans va xarajatlar",
+   175→   175→          head: ['Obyekt', 'Avans', 'Xarajat', 'Qoldiq'],
+   176→   176→          body: (data.bySiteFinance ?? []).map((r) => [
+   177→   177→            r.siteName,
+   178→   178→            formatMoney(r.advance),
+   179→   179→            formatMoney(r.expense),
+   180→   180→            formatMoney(r.net),
+   181→   181→          ]),
+   182→   182→        },
+   183→   183→      ],
+   184→   184→      filename: `hisobot_${from}_${to}`,
+   185→   185→    })
+   186→   186→    toast({ title: 'PDF yuklandi', description: 'Fayl kompyuteringizga saqlandi' })
+   187→   187→  }
+   188→   188→
+   189→   189→  return (
+   190→   190→    <div className="space-y-5">
+   191→   191→      <div className="flex flex-wrap items-center justify-between gap-3">
+   192→   192→        <div>
+   193→   193→          <h1 className="text-xl font-bold lg:text-2xl">Hisobotlar</h1>
+   194→   194→          <p className="text-sm text-muted-foreground">Davr, ishchi va obyekt bo&apos;yicha hisob-kitob</p>
+   195→   195→        </div>
+   196→   196→        <div className="flex gap-2">
+   197→   197→          <Button variant="outline" className="gap-2" onClick={handleExportExcel} disabled={!hasData}>
+   198→   198→            <FileSpreadsheet className="h-4 w-4" /> Excel
+   199→   199→          </Button>
+   200→   200→          <Button className="gap-2" onClick={handleExportPDF} disabled={!hasData}>
+   201→   201→            <FileText className="h-4 w-4" /> PDF
+   202→   202→          </Button>
+   203→   203→        </div>
+   204→   204→      </div>
+   205→   205→
+   206→   206→      {/* Filtrlar */}
+   207→   207→      <Card className="p-4">
+   208→   208→        <div className="mb-3 flex items-center gap-2 text-sm font-medium text-muted-foreground">
+   209→   209→          <Filter className="h-4 w-4" /> Filtr
+   210→   210→          {(workerId !== 'all' || siteId !== 'all' || from !== monthStartStr() || to !== todayStr()) && (
+   211→   211→            <Button
+   212→   212→              variant="ghost"
+   213→   213→              size="sm"
+   214→   214→              className="ml-auto h-7 gap-1 text-xs"
+   215→   215→              onClick={() => {
+   216→   216→                setFrom(monthStartStr())
+   217→   217→                setTo(todayStr())
+   218→   218→                setWorkerId('all')
+   219→   219→                setSiteId('all')
+   220→   220→              }}
+   221→   221→            >
+   222→   222→              <X className="h-3.5 w-3.5" /> Tozalash
+   223→   223→            </Button>
+   224→   224→          )}
+   225→   225→        </div>
+   226→   226→        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+   227→   227→          <div className="space-y-1.5">
+   228→   228→            <Label>Dan</Label>
+   229→   229→            <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
+   230→   230→          </div>
+   231→   231→          <div className="space-y-1.5">
+   232→   232→            <Label>Gacha</Label>
+   233→   233→            <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} />
+   234→   234→          </div>
+   235→   235→          <div className="space-y-1.5">
+   236→   236→            <Label>Ishchi</Label>
+   237→   237→            <Select value={workerId} onValueChange={setWorkerId}>
+   238→   238→              <SelectTrigger>
+   239→   239→                <SelectValue />
+   240→   240→              </SelectTrigger>
+   241→   241→              <SelectContent>
+   242→   242→                <SelectItem value="all">Barcha ishchilar</SelectItem>
+   243→   243→                {workers?.map((w) => (
+   244→   244→                  <SelectItem key={w.id} value={w.id}>{w.fullName}</SelectItem>
+   245→   245→                ))}
+   246→   246→              </SelectContent>
+   247→   247→            </Select>
+   248→   248→          </div>
+   249→   249→          <div className="space-y-1.5">
+   250→   250→            <Label>Obyekt</Label>
+   251→   251→            <Select value={siteId} onValueChange={setSiteId}>
+   252→   252→              <SelectTrigger>
+   253→   253→                <SelectValue />
+   254→   254→              </SelectTrigger>
+   255→   255→              <SelectContent>
+   256→   256→                <SelectItem value="all">Barcha obyektlar</SelectItem>
+   257→   257→                {sites?.map((s) => (
+   258→   258→                  <SelectItem key={s.id} value={s.id}>{s.name}</SelectItem>
+   259→   259→                ))}
+   260→   260→              </SelectContent>
+   261→   261→            </Select>
+   262→   262→          </div>
+   263→   263→        </div>
+   264→   264→      </Card>
+   265→   265→
+   266→   266→      {/* Jami ko'rsatkichlar */}
+   267→   267→      {loading ? (
+   268→   268→        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   269→   269→          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)}
+   270→   270→        </div>
+   271→   271→      ) : data ? (
+   272→   272→        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+   273→   273→          <SummaryCard title="Ishlangan kunlar" value={String(data.totals.days)} hint={`${data.totals.absent} kelmagan`} />
+   274→   274→          <SummaryCard title="Jami ish haqi" value={formatMoney(data.totals.earned)} suffix="so'm" tone="amber" />
+   275→   275→          <SummaryCard title="To'langan" value={formatMoney(data.totals.paid)} suffix="so'm" tone="green" />
+   276→   276→          <SummaryCard
+   277→   277→            title="Qoldiq (qarz)"
+   278→   278→            value={formatMoney(data.totals.balance)}
+   279→   279→            suffix="so'm"
+   280→   280→            tone={data.totals.balance > 0 ? 'red' : 'green'}
+   281→   281→          />
+   282→   282→        </div>
+   283→   283→      ) : null}
+   284→   284→
+   285→   285→      {/* Hisobot jadvallari */}
+   286→   286→      {loading ? (
+   287→   287→        <Skeleton className="h-72 rounded-xl" />
+   288→   288→      ) : !data || !hasData ? (
+   289→   289→        <Card>
+   290→   290→          <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+   291→   291→            <FileBarChart className="h-10 w-10 text-muted-foreground/30" />
+   292→   292→            <p className="text-sm text-muted-foreground">
+   293→   293→              Tanlangan davrda ma&apos;lumot yo&apos;q. Boshqa sana oralig&apos;ini tanlang.
+   294→   294→            </p>
+   295→   295→          </CardContent>
+   296→   296→        </Card>
+   297→   297→      ) : (
+   298→   298→        <Tabs value={activeTab} onValueChange={setActiveTab}>
+   299→   299→          <TabsList className="h-auto w-full flex-wrap justify-start gap-1">
+   300→   300→            <TabsTrigger value="workers">Ishchilar bo&apos;yicha</TabsTrigger>
+   301→   301→            <TabsTrigger value="worker">Ishchi bo&apos;yicha batafsil</TabsTrigger>
+   302→   302→            <TabsTrigger value="sites">Obyektlar bo&apos;yicha</TabsTrigger>
+   303→   303→            <TabsTrigger value="days">Kunlar bo&apos;yicha</TabsTrigger>
+   304→   304→            <TabsTrigger value="finance">Moliya</TabsTrigger>
+   305→   305→          </TabsList>
+   306→   306→
+   307→   307→          <TabsContent value="workers">
+   308→   308→            <Card>
+   309→   309→              <Table>
+   310→   310→                <TableHeader>
+   311→   311→                  <TableRow>
+   312→   312→                    <TableHead>Ishchi</TableHead>
+   313→   313→                    <TableHead className="text-center">Kun</TableHead>
+   314→   314→                    <TableHead className="hidden text-center sm:table-cell">Kelmagan</TableHead>
+   315→   315→                    <TableHead className="text-right">Ish haqi</TableHead>
+   316→   316→                    <TableHead className="text-right">To&apos;langan</TableHead>
+   317→   317→                    <TableHead className="text-right">Qoldiq</TableHead>
+   318→   318→                  </TableRow>
+   319→   319→                </TableHeader>
+   320→   320→                <TableBody>
+   321→   321→                  {data.byWorker.map((r) => (
+   322→   322→                    <TableRow key={r.workerId}>
+   323→   323→                      <TableCell>
+   324→   324→                        <p className="font-medium">{r.workerName}</p>
+   325→   325→                        {r.position && <p className="text-[11px] text-muted-foreground">{r.position}</p>}
+   326→   326→                      </TableCell>
+   327→   327→                      <TableCell className="text-center tabular-nums">{r.days}</TableCell>
+   328→   328→                      <TableCell className="hidden text-center tabular-nums text-muted-foreground sm:table-cell">{r.absent}</TableCell>
+   329→   329→                      <TableCell className="text-right tabular-nums">{formatMoney(r.earned)}</TableCell>
+   330→   330→                      <TableCell className="text-right tabular-nums text-emerald-700">{formatMoney(r.paid)}</TableCell>
+   331→   331→                      <TableCell className="text-right font-semibold tabular-nums">
+   332→   332→                        {r.balance > 0 ? (
+   333→   333→                          <span className="text-amber-700">+{formatMoney(r.balance)}</span>
+   334→   334→                        ) : (
+   335→   335→                          <span className="text-emerald-600">{formatMoney(r.balance)}</span>
+   336→   336→                        )}
+   337→   337→                      </TableCell>
+   338→   338→                    </TableRow>
+   339→   339→                  ))}
+   340→   340→                  <TableRow className="bg-secondary/60 font-semibold">
+   341→   341→                    <TableCell>Jami</TableCell>
+   342→   342→                    <TableCell className="text-center tabular-nums">{data.totals.days}</TableCell>
+   343→   343→                    <TableCell className="hidden text-center tabular-nums sm:table-cell">{data.totals.absent}</TableCell>
+   344→   344→                    <TableCell className="text-right tabular-nums">{formatMoney(data.totals.earned)}</TableCell>
+   345→   345→                    <TableCell className="text-right tabular-nums">{formatMoney(data.totals.paid)}</TableCell>
+   346→   346→                    <TableCell className="text-right tabular-nums">{formatMoney(data.totals.balance)}</TableCell>
+   347→   347→                  </TableRow>
+   348→   348→                </TableBody>
+   349→   349→              </Table>
+   350→   350→            </Card>
+   351→   351→          </TabsContent>
+   352→   352→
+   353→   353→          <TabsContent value="worker">
+   354→   354→            {workerId === 'all' ? (
+   355→   355→              <Card>
+   356→   356→                <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
+   357→   357→                  <UserSearch className="h-10 w-10 text-muted-foreground/30" />
+   358→   358→                  <p className="max-w-sm text-sm text-muted-foreground">
+   359→   359→                    Bir ishchining davr davomida <b>qaysi obyektlarga borgani</b>, kunma-kun harakati va
+   360→   360→                    to&apos;lovlari ko&apos;rinishi uchun ishchini tanlang:
+   361→   361→                  </p>
+   362→   362→                  <Select value={workerId} onValueChange={setWorkerId}>
+   363→   363→                    <SelectTrigger className="w-full max-w-xs">
+   364→   364→                      <SelectValue placeholder="Ishchini tanlang" />
+   365→   365→                    </SelectTrigger>
+   366→   366→                    <SelectContent>
+   367→   367→                      {workers?.map((w) => (
+   368→   368→                        <SelectItem key={w.id} value={w.id}>{w.fullName}</SelectItem>
+   369→   369→                      ))}
+   370→   370→                    </SelectContent>
+   371→   371→                  </Select>
+   372→   372→                </CardContent>
+   373→   373→              </Card>
+   374→   374→            ) : selectedWorker ? (
+   375→   375→              <div className="space-y-4">
+   376→   376→                {/* Ishchi kartochkasi */}
+   377→   377→                <Card className="p-4">
+   378→   378→                  <div className="flex flex-wrap items-center justify-between gap-2">
+   379→   379→                    <div className="min-w-0">
+   380→   380→                      <p className="truncate text-base font-bold">{selectedWorker.fullName}</p>
+   381→   381→                      <p className="text-xs text-muted-foreground">
+   382→   382→                        {[selectedWorker.position, selectedWorker.phone].filter(Boolean).join(' · ') || '—'}
+   383→   383→                      </p>
+   384→   384→                    </div>
+   385→   385→                    <div className="text-right">
+   386→   386→                      <p className="text-[11px] text-muted-foreground">Kunlik stavka</p>
+   387→   387→                      <p className="text-sm font-semibold tabular-nums">
+   388→   388→                        {formatMoney(selectedWorker.dailyRate)} so&apos;m
+   389→   389→                      </p>
+   390→   390→                    </div>
+   391→   391→                  </div>
+   392→   392→                  <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+   393→   393→                    <div className="rounded-lg bg-secondary/60 px-3 py-2">
+   394→   394→                      <p className="text-[11px] text-muted-foreground">Ishlagan kun</p>
+   395→   395→                      <p className="text-sm font-bold tabular-nums">
+   396→   396→                        {data.totals.days}
+   397→   397→                        <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+   398→   398→                          ({data.totals.absent} kelmagan)
+   399→   399→                        </span>
+   400→   400→                      </p>
+   401→   401→                    </div>
+   402→   402→                    <div className="rounded-lg bg-secondary/60 px-3 py-2">
+   403→   403→                      <p className="text-[11px] text-muted-foreground">Ish haqi</p>
+   404→   404→                      <p className="text-sm font-bold tabular-nums text-amber-700">{formatMoney(data.totals.earned)}</p>
+   405→   405→                    </div>
+   406→   406→                    <div className="rounded-lg bg-secondary/60 px-3 py-2">
+   407→   407→                      <p className="text-[11px] text-muted-foreground">To&apos;langan</p>
+   408→   408→                      <p className="text-sm font-bold tabular-nums text-emerald-700">{formatMoney(data.totals.paid)}</p>
+   409→   409→                    </div>
+   410→   410→                    <div className="rounded-lg bg-secondary/60 px-3 py-2">
+   411→   411→                      <p className="text-[11px] text-muted-foreground">Qoldiq (qarz)</p>
+   412→   412→                      <p className={`text-sm font-bold tabular-nums ${data.totals.balance > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
+   413→   413→                        {formatMoney(data.totals.balance)}
+   414→   414→                      </p>
+   415→   415→                    </div>
+   416→   416→                  </div>
+   417→   417→                </Card>
+   418→   418→
+   419→   419→                {/* Obyektlar bo'yicha kesim */}
+   420→   420→                <Card>
+   421→   421→                  <div className="border-b px-4 py-3">
+   422→   422→                    <p className="text-sm font-semibold">Qaysi obyektlarda ishlagan</p>
+   423→   423→                    <p className="text-[11px] text-muted-foreground">Davr: {periodLabel}</p>
+   424→   424→                  </div>
+   425→   425→                  {workerSiteRows.length === 0 ? (
+   426→   426→                    <CardContent className="py-8 text-center text-sm text-muted-foreground">
+   427→   427→                      Bu davrda ishlangan kun yo&apos;q
+   428→   428→                    </CardContent>
+   429→   429→                  ) : (
+   430→   430→                    <Table>
+   431→   431→                      <TableHeader>
+   432→   432→                        <TableRow>
+   433→   433→                          <TableHead>Obyekt</TableHead>
+   434→   434→                          <TableHead className="text-center">Kun</TableHead>
+   435→   435→                          <TableHead className="hidden text-center sm:table-cell">Kelmagan</TableHead>
+   436→   436→                          <TableHead className="text-right">Summa</TableHead>
+   437→   437→                        </TableRow>
+   438→   438→                      </TableHeader>
+   439→   439→                      <TableBody>
+   440→   440→                        {workerSiteRows.map((r) => (
+   441→   441→                          <TableRow key={r.siteName}>
+   442→   442→                            <TableCell className="font-medium">{r.siteName}</TableCell>
+   443→   443→                            <TableCell className="text-center tabular-nums">{r.days}</TableCell>
+   444→   444→                            <TableCell className="hidden text-center tabular-nums text-muted-foreground sm:table-cell">
+   445→   445→                              {r.absent}
+   446→   446→                            </TableCell>
+   447→   447→                            <TableCell className="text-right font-semibold tabular-nums">{formatMoney(r.amount)}</TableCell>
+   448→   448→                          </TableRow>
+   449→   449→                        ))}
+   450→   450→                        <TableRow className="bg-secondary/60 font-semibold">
+   451→   451→                          <TableCell>Jami</TableCell>
+   452→   452→                          <TableCell className="text-center tabular-nums">{data.totals.days}</TableCell>
+   453→   453→                          <TableCell className="hidden text-center tabular-nums sm:table-cell">{data.totals.absent}</TableCell>
+   454→   454→                          <TableCell className="text-right tabular-nums">{formatMoney(data.totals.earned)}</TableCell>
+   455→   455→                        </TableRow>
+   456→   456→                      </TableBody>
+   457→   457→                    </Table>
+   458→   458→                  )}
+   459→   459→                </Card>
+   460→   460→
+   461→   461→                {/* To'lovlar tarixi */}
+   462→   462→                <Card className="max-h-[26rem] overflow-y-auto">
+   463→   463→                  <div className="border-b px-4 py-3">
+   464→   464→                    <p className="text-sm font-semibold">To&apos;lovlar tarixi</p>
+   465→   465→                    <p className="text-[11px] text-muted-foreground">Qachon qancha pul olgani</p>
+   466→   466→                  </div>
+   467→   467→                  {(workerPayments ?? []).length === 0 ? (
+   468→   468→                    <CardContent className="py-8 text-center text-sm text-muted-foreground">
+   469→   469→                      Bu davrda to&apos;lov yo&apos;q
+   470→   470→                    </CardContent>
+   471→   471→                  ) : (
+   472→   472→                    <Table>
+   473→   473→                      <TableHeader>
+   474→   474→                        <TableRow>
+   475→   475→                          <TableHead>Sana</TableHead>
+   476→   476→                          <TableHead className="hidden sm:table-cell">Izoh</TableHead>
+   477→   477→                          <TableHead className="text-right">Summa</TableHead>
+   478→   478→                        </TableRow>
+   479→   479→                      </TableHeader>
+   480→   480→                      <TableBody>
+   481→   481→                        {(workerPayments ?? []).map((p) => (
+   482→   482→                          <TableRow key={p.id}>
+   483→   483→                            <TableCell className="font-medium">{formatDateUz(p.date)}</TableCell>
+   484→   484→                            <TableCell className="hidden text-muted-foreground sm:table-cell">{p.note || '—'}</TableCell>
+   485→   485→                            <TableCell className="text-right font-semibold tabular-nums text-emerald-700">
+   486→   486→                              {formatMoney(p.amount)}
+   487→   487→                            </TableCell>
+   488→   488→                          </TableRow>
+   489→   489→                        ))}
+   490→   490→                        <TableRow className="bg-secondary/60 font-semibold">
+   491→   491→                          <TableCell colSpan={2}>Jami to&apos;langan</TableCell>
+   492→   492→                          <TableCell className="text-right tabular-nums">{formatMoney(data.totals.paid)}</TableCell>
+   493→   493→                        </TableRow>
+   494→   494→                      </TableBody>
+   495→   495→                    </Table>
+   496→   496→                  )}
+   497→   497→                </Card>
+   498→   498→
+   499→   499→                {/* Kunma-kun harakat */}
+   500→   500→                <Card className="max-h-[30rem] overflow-y-auto">
+   501→   501→                  <div className="border-b px-4 py-3">
+   502→   502→                    <p className="text-sm font-semibold">Kunma-kun harakat</p>
+   503→   503→                    <p className="text-[11px] text-muted-foreground">Qaysi kunda qaysi obyektda bo&apos;lgani</p>
+   504→   504→                  </div>
+   505→   505→                  <Table>
+   506→   506→                    <TableHeader>
+   507→   507→                      <TableRow>
+   508→   508→                        <TableHead>Sana</TableHead>
+   509→   509→                        <TableHead>Obyekt</TableHead>
+   510→   510→                        <TableHead className="text-center">Holat</TableHead>
+   511→   511→                        <TableHead className="text-right">Summa</TableHead>
+   512→   512→                      </TableRow>
+   513→   513→                    </TableHeader>
+   514→   514→                    <TableBody>
+   515→   515→                      {data.details.map((d, i) => (
+   516→   516→                        <TableRow key={i}>
+   517→   517→                          <TableCell className="whitespace-nowrap font-medium">{formatDateUz(d.date)}</TableCell>
+   518→   518→                          <TableCell>{d.siteName}</TableCell>
+   519→   519→                          <TableCell className="text-center">
+   520→   520→                            <Badge
+   521→   521→                              variant="secondary"
+   522→   522→                              className={d.status === 'PRESENT' ? 'bg-emerald-100/80 text-emerald-800' : 'bg-rose-100/80 text-rose-800'}
+   523→   523→                            >
+   524→   524→                              {d.status === 'PRESENT' ? 'Keldi' : 'Kelmadi'}
+   525→   525→                            </Badge>
+   526→   526→                          </TableCell>
+   527→   527→                          <TableCell className="text-right tabular-nums">
+   528→   528→                            {d.status === 'PRESENT' ? formatMoney(d.amount) : '—'}
+   529→   529→                          </TableCell>
+   530→   530→                        </TableRow>
+   531→   531→                      ))}
+   532→   532→                    </TableBody>
+   533→   533→                  </Table>
+   534→   534→                </Card>
+   535→   535→              </div>
+   536→   536→            ) : null}
+   537→   537→          </TabsContent>
+   538→   538→
+   539→   539→          <TabsContent value="sites">
+   540→   540→            <Card>
+   541→   541→              <Table>
+   542→   542→                <TableHeader>
+   543→   543→                  <TableRow>
+   544→   544→                    <TableHead>Obyekt</TableHead>
+   545→   545→                    <TableHead className="text-center">Kun-davomat</TableHead>
+   546→   546→                    <TableHead className="hidden text-center sm:table-cell">Kelmagan</TableHead>
+   547→   547→                    <TableHead className="text-right">Xarajat</TableHead>
+   548→   548→                  </TableRow>
+   549→   549→                </TableHeader>
+   550→   550→                <TableBody>
+   551→   551→                  {data.bySite.map((r) => (
+   552→   552→                    <TableRow key={r.siteId}>
+   553→   553→                      <TableCell className="font-medium">{r.siteName}</TableCell>
+   554→   554→                      <TableCell className="text-center tabular-nums">{r.workerDays}</TableCell>
+   555→   555→                      <TableCell className="hidden text-center tabular-nums text-muted-foreground sm:table-cell">{r.absent}</TableCell>
+   556→   556→                      <TableCell className="text-right font-semibold tabular-nums">{formatMoney(r.cost)}</TableCell>
+   557→   557→                    </TableRow>
+   558→   558→                  ))}
+   559→   559→                  <TableRow className="bg-secondary/60 font-semibold">
+   560→   560→                    <TableCell>Jami</TableCell>
+   561→   561→                    <TableCell className="text-center tabular-nums">
+   562→   562→                      {data.bySite.reduce((s, r) => s + r.workerDays, 0)}
+   563→   563→                    </TableCell>
+   564→   564→                    <TableCell className="hidden text-center tabular-nums sm:table-cell">
+   565→   565→                      {data.bySite.reduce((s, r) => s + r.absent, 0)}
+   566→   566→                    </TableCell>
+   567→   567→                    <TableCell className="text-right tabular-nums">
+   568→   568→                      {formatMoney(data.bySite.reduce((s, r) => s + r.cost, 0))}
+   569→   569→                    </TableCell>
+   570→   570→                  </TableRow>
+   571→   571→                </TableBody>
+   572→   572→              </Table>
+   573→   573→            </Card>
+   574→   574→          </TabsContent>
+   575→   575→
+   576→   576→          <TabsContent value="days">
+   577→   577→            <Card>
+   578→   578→              <Table>
+   579→   579→                <TableHeader>
+   580→   580→                  <TableRow>
+   581→   581→                    <TableHead>Sana</TableHead>
+   582→   582→                    <TableHead className="text-center">Keldi</TableHead>
+   583→   583→                    <TableHead className="text-center">Kelmadi</TableHead>
+   584→   584→                    <TableHead className="text-right">Summa</TableHead>
+   585→   585→                  </TableRow>
+   586→   586→                </TableHeader>
+   587→   587→                <TableBody>
+   588→   588→                  {data.byDate.map((r) => (
+   589→   589→                    <TableRow key={r.date}>
+   590→   590→                      <TableCell className="font-medium">{formatDateUz(r.date)}</TableCell>
+   591→   591→                      <TableCell className="text-center tabular-nums">{r.present}</TableCell>
+   592→   592→                      <TableCell className="text-center tabular-nums text-muted-foreground">{r.absent}</TableCell>
+   593→   593→                      <TableCell className="text-right tabular-nums">{formatMoney(r.cost)}</TableCell>
+   594→   594→                    </TableRow>
+   595→   595→                  ))}
+   596→   596→                </TableBody>
+   597→   597→              </Table>
+   598→   598→            </Card>
+   599→   599→          </TabsContent>
+   600→   600→          <TabsContent value="finance">
+   601→   601→            <Card>
+   602→   602→              {(data.bySiteFinance ?? []).length === 0 ? (
+   603→   603→                <CardContent className="py-10 text-center text-sm text-muted-foreground">
+   604→   604→                  Bu davrda avans yoki xarajat yozuvi yo&apos;q
+   605→   605→                </CardContent>
+   606→   606→              ) : (
+   607→   607→                <Table>
+   608→   608→                  <TableHeader>
+   609→   609→                    <TableRow>
+   610→   610→                      <TableHead>Obyekt</TableHead>
+   611→   611→                      <TableHead className="text-right">Avans (kirim)</TableHead>
+   612→   612→                      <TableHead className="text-right">Xarajat</TableHead>
+   613→   613→                      <TableHead className="text-right">Qoldiq</TableHead>
+   614→   614→                    </TableRow>
+   615→   615→                  </TableHeader>
+   616→   616→                  <TableBody>
+   617→   617→                    {data.bySiteFinance.map((r) => (
+   618→   618→                      <TableRow key={r.siteId}>
+   619→   619→                        <TableCell className="font-medium">{r.siteName}</TableCell>
+   620→   620→                        <TableCell className="text-right tabular-nums text-emerald-700">+{formatMoney(r.advance)}</TableCell>
+   621→   621→                        <TableCell className="text-right tabular-nums text-rose-700">-{formatMoney(r.expense)}</TableCell>
+   622→   622→                        <TableCell className={`text-right font-semibold tabular-nums ${r.net < 0 ? 'text-rose-700' : ''}`}>
+   623→   623→                          {formatMoney(r.net)}
+   624→   624→                        </TableCell>
+   625→   625→                      </TableRow>
+   626→   626→                    ))}
+   627→   627→                    <TableRow className="bg-secondary/60 font-semibold">
+   628→   628→                      <TableCell>Jami</TableCell>
+   629→   629→                      <TableCell className="text-right tabular-nums">+{formatMoney(data.financeTotals?.advance ?? 0)}</TableCell>
+   630→   630→                      <TableCell className="text-right tabular-nums">-{formatMoney(data.financeTotals?.expense ?? 0)}</TableCell>
+   631→   631→                      <TableCell className="text-right tabular-nums">
+   632→   632→                        {formatMoney((data.financeTotals?.advance ?? 0) - (data.financeTotals?.expense ?? 0))}
+   633→   633→                      </TableCell>
+   634→   634→                    </TableRow>
+   635→   635→                  </TableBody>
+   636→   636→                </Table>
+   637→   637→              )}
+   638→   638→            </Card>
+   639→   639→          </TabsContent>
+   640→   640→        </Tabs>
+   641→   641→      )}
+   642→   642→    </div>
+   643→   643→  )
+   644→   644→}
+   645→   645→
+   646→   646→function SummaryCard({
+   647→   647→  title,
+   648→   648→  value,
+   649→   649→  hint,
+   650→   650→  suffix,
+   651→   651→  tone = 'default',
+   652→   652→}: {
+   653→   653→  title: string
+   654→   654→  value: string
+   655→   655→  hint?: string
+   656→   656→  suffix?: string
+   657→   657→  tone?: 'default' | 'green' | 'red' | 'amber'
+   658→   658→}) {
+   659→   659→  const toneCls =
+   660→   660→    tone === 'green'
+   661→   661→      ? 'text-emerald-700'
+   662→   662→      : tone === 'red'
+   663→   663→        ? 'text-rose-700'
+   664→   664→        : tone === 'amber'
+   665→   665→          ? 'text-amber-700'
+   666→   666→          : ''
+   667→   667→  return (
+   668→   668→    <Card className="p-4">
+   669→   669→      <p className="text-xs font-medium text-muted-foreground">{title}</p>
+   670→   670→      <p className={`mt-1 text-lg font-bold tabular-nums lg:text-xl ${toneCls}`}>
+   671→   671→        {value}
+   672→   672→        {suffix && <span className="ml-1 text-xs font-normal text-muted-foreground">{suffix}</span>}
+   673→   673→      </p>
+   674→   674→      {hint && <Badge variant="secondary" className="mt-1.5">{hint}</Badge>}
+   675→   675→    </Card>
+   676→   676→  )
+   677→   677→}
+   678→   678→

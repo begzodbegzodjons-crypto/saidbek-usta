@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
@@ -26,8 +26,8 @@ model Worker {
 model Site {
   id        String       @id @default(cuid())
   name      String
-  address   String?
-  client    String?
+  address   String?      @db.Text
+  client    String?      @db.Text
   active    Boolean      @default(true)
   clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
   createdAt DateTime     @default(now())
@@ -44,7 +44,7 @@ model Attendance {
   date      String
   status    String   @default("PRESENT") // PRESENT | ABSENT
   dayRate   Float?
-  note      String?
+  note      String?  @db.Text
   createdAt DateTime @default(now())
   worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
   site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
@@ -60,7 +60,7 @@ model Payment {
   workerId  String
   amount    Float
   date      String
-  note      String?
+  note      String?  @db.Text
   clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
   createdAt DateTime @default(now())
   worker    Worker   @relation(fields: [workerId], references: [id], onDelete: Cascade)
@@ -75,8 +75,8 @@ model SiteTransaction {
   type      String   @default("EXPENSE") // ADVANCE (avans/kirim) | EXPENSE (xarajat)
   amount    Float
   date      String
-  category  String?
-  note      String?
+  category  String?  @db.Text
+  note      String?  @db.Text
   clientKey String?      @unique // Ikki marta yozilishdan himoya (idempotent yaratish)
   createdAt DateTime @default(now())
   site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
@@ -89,6 +89,6 @@ model SiteTransaction {
 model Setting {
   id        String   @id @default(cuid())
   key       String   @unique
-  value     String
+  value     String   @db.Text
   updatedAt DateTime @updatedAt
 }

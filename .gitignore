@@ -57,10 +57,10 @@ server.log
 # Ma'lumotlar bazasi (haqiqiy biznes ma'lumotlari repo'ga kirmasin)
 /db/
 
-# Ishlatilmaydigan mahalliy papkalar
+# Ishlatilmaydigan mahalliy papkalar (upload/ — kredensiallar, git'ga kirmasin)
 /download/
 /scripts/
-/.zscripts/
+/upload/
 /agent-ctx/
 worklog.md
 backups/
